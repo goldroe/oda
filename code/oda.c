@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <assert.h>
 #include <stdbool.h>
+#include <ctype.h>
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -59,8 +60,89 @@ void buf_test() {
 	buf_free(foo);
 }
 
+typedef enum {
+	TOKEN_IDENT = 128,
+	TOKEN_INT,
+} TokenType;
+
+typedef struct {
+	TokenType type;
+	const char *start;
+	const char *end;
+
+	typedef union {
+		int val;
+		const char *identifier;
+	};
+} Token;
+
+const char *stream;
+Token token;
+
+void next_token() {
+	token.start = stream;
+	switch (*stream) {
+		case '0': case '1': case '2': case '3': case '4': case '5': case '6':
+		case '7': case '8': case '9':
+			token.type = TOKEN_INT;
+			token.val = 0;
+			while (isdigit(*stream)) {
+				token.val *= 10;
+				token.val += *stream - '0';
+				stream++;
+			}
+			token.end = stream;
+			break;
+		case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
+		case 'H': case 'I': case 'J': case 'K': case 'L': case 'M': case 'N':
+		case 'O': case 'P': case 'Q': case 'R': case 'S': case 'T': case 'U':
+		case 'V': case 'W': case 'X': case 'Y': case 'Z':
+		case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
+		case 'h': case 'i': case 'j': case 'k': case 'l': case 'm': case 'n':
+		case 'o': case 'p': case 'q': case 'r': case 's': case 't': case 'u':
+		case 'v': case 'w': case 'x': case 'y': case 'z':
+			token.type = TOKEN_IDENT;
+			while (isalnum(*stream) || *stream == '_') {
+				stream++;
+			}
+			token.end = stream;
+			break;
+		default:
+			token.type = *stream++;
+			token.end = stream;
+	}
+}
+
+void print_token() {
+	switch (token.type) {
+		case TOKEN_INT:
+			printf("TOKEN_INT: %d\n", token.val);
+			break;
+		case TOKEN_IDENT:
+			printf("TOKEN_IDENT: %s\n", token.identifier);
+			break;
+		default:
+			if (token.type < 128) {
+				printf("<ASCII: %c>\n", token.type);
+			}	else {
+				printf("<NON ASCII: %c>\n", token.type);
+			}
+	}
+}
+
+void lex_test() {
+	printf("%s\n", stream);
+	stream = "10+foo+bizz";
+	next_token();
+	while (token.type) {
+		print_token();
+		next_token();
+	}
+}
+
 int main(int argc, char **argv) {
 	buf_test();
+	lex_test();
 
 	return 0;
 }
