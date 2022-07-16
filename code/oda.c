@@ -9,8 +9,20 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <string.h>
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+void *xmalloc(size_t size) {
+	void *result = malloc(size);
+	if (result == NULL) {
+		fprintf(stderr, "fatal: malloc failed to allocate %zu bytes.\n", size);
+		exit(1);
+	}
+	return result;
+}
+
+#define malloc(x) xmalloc(x)
 
 typedef struct {
 	size_t len;
@@ -26,7 +38,7 @@ typedef struct {
 #define buf_cap(b) ((b) ? buf__hdr(b)->cap : 0)
 #define buf_end(b) ((void *)((char *)(b) + sizeof(*(b)) * buf_len((b))))
 #define buf_push(b, ...) (buf__fit((b), 1), (b)[buf__hdr(b)->len++] = (__VA_ARGS__))
-#define buf_free(b) ((b) ? free(buf__hdr(b)) : 0)
+#define buf_free(b) ((b) ? free(buf__hdr(b)) : 0, (b) = NULL)
 
 void *buf__grow(const void *buf, size_t new_len, size_t element_size) {
 	size_t new_cap = MAX(1 + 2 * buf_cap(buf), new_len);
@@ -58,6 +70,43 @@ void buf_test() {
 	}
 
 	buf_free(foo);
+	assert(foo == NULL);
+}
+
+// string interning
+typedef struct {
+	size_t len;
+	const char *str;
+} InternStr;
+
+InternStr *interns;
+
+const char *intern_str_range(const char *start, const char *end) {
+	size_t len = end - start;
+	for (InternStr *it = interns; it != buf_end(interns); it++) {
+		if (it->len == len && strncmp(it->str, start, len) == 0) {
+			return it->str;
+		}
+	}
+	char *new_str = malloc(len + 1);
+	memcpy(new_str, start, len);
+	new_str[len] = '\0';
+	buf_push(interns, (InternStr) { len, new_str });
+	return new_str;
+}
+
+const char *intern_str(const char *str) {
+	return intern_str_range(str, str + strlen(str));
+}
+
+void intern_str_test() {
+	const char *x = intern_str("foo");
+	const char *y = intern_str("foo");
+	assert(x == y);
+
+	const char *dx = intern_str("bizz");
+	const char *dy = intern_str("bizzbuzz");
+	assert(dx != dy);
 }
 
 typedef enum {
@@ -106,6 +155,7 @@ void next_token() {
 				stream++;
 			}
 			token.end = stream;
+			token.identifier = intern_str_range(token.start, token.end);
 			break;
 		default:
 			token.type = *stream++;
@@ -123,16 +173,15 @@ void print_token() {
 			break;
 		default:
 			if (token.type < 128) {
-				printf("<ASCII: %c>\n", token.type);
+				printf("%c\n", token.type);
 			}	else {
-				printf("<NON ASCII: %c>\n", token.type);
+				printf("<ASCII>%c\n", token.type);
 			}
 	}
 }
 
 void lex_test() {
-	printf("%s\n", stream);
-	stream = "10+foo+bizz";
+	stream = "10+20+foo+bizz+bizzbuzz";
 	next_token();
 	while (token.type) {
 		print_token();
@@ -142,6 +191,7 @@ void lex_test() {
 
 int main(int argc, char **argv) {
 	buf_test();
+	intern_str_test();
 	lex_test();
 
 	return 0;
