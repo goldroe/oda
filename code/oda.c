@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <ctype.h>
 #include <string.h>
+#include <stdarg.h>
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -21,8 +22,19 @@ void *xmalloc(size_t size) {
 	}
 	return result;
 }
-
 #define malloc(x) xmalloc(x)
+
+void fatal(const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	printf("FATAL: ");
+	vprintf(fmt, args);
+	printf("\n");
+	va_end(args);
+	exit(1);
+}
+
+// Stretchy Buffer
 
 typedef struct {
 	size_t len;
@@ -73,7 +85,8 @@ void buf_test() {
 	assert(foo == NULL);
 }
 
-// string interning
+// String Interning
+
 typedef struct {
 	size_t len;
 	const char *str;
@@ -109,6 +122,8 @@ void intern_str_test() {
 	assert(dx != dy);
 }
 
+// Lexing
+
 typedef enum {
 	TOKEN_IDENT = 128,
 	TOKEN_INT,
@@ -127,6 +142,47 @@ typedef struct {
 
 const char *stream;
 Token token;
+
+void print_token() {
+	switch (token.type) {
+		case TOKEN_INT:
+			printf("TOKEN_INT: %d\n", token.val);
+			break;
+		case TOKEN_IDENT:
+			printf("TOKEN_IDENT: %s\n", token.identifier);
+			break;
+		default:
+			if (token.type < 128) {
+				printf("%c\n", token.type);
+			}	else {
+				printf("<ASCII>%c\n", token.type);
+			}
+	}
+}
+
+size_t copy_token_type_str(char *dest, size_t dest_size, TokenType type) {
+	size_t n = 0;
+	switch (type) {
+		case TOKEN_INT:
+			n = snprintf(dest, dest_size, "integer");
+			break;
+		case TOKEN_IDENT:
+			n = snprintf(dest, dest_size, "identifer");
+			break;
+		default:
+			n = snprintf(dest, dest_size, "%c", type);
+	}
+
+	return n;
+}
+
+// @note: Returns static buffer
+const char *token_type_str(TokenType type) {
+	static char buf[256];
+	size_t n = copy_token_type_str(buf, sizeof(buf), type);
+	assert(n + 1 <= sizeof(buf));
+	return buf;
+}
 
 void next_token() {
 	token.start = stream;
@@ -163,26 +219,33 @@ void next_token() {
 	}
 }
 
-void print_token() {
-	switch (token.type) {
-		case TOKEN_INT:
-			printf("TOKEN_INT: %d\n", token.val);
-			break;
-		case TOKEN_IDENT:
-			printf("TOKEN_IDENT: %s\n", token.identifier);
-			break;
-		default:
-			if (token.type < 128) {
-				printf("%c\n", token.type);
-			}	else {
-				printf("<ASCII>%c\n", token.type);
-			}
-	}
+inline bool is_token(TokenType type) {
+	return token.type == type;
 }
 
-void lex_test() {
-	stream = "10+20+foo+bizz+bizzbuzz";
+inline bool match_token(TokenType type) {
+	if (is_token(type)) {
+		next_token();
+		return true;
+	}
+	return false;
+}
+
+inline bool expect_token(TokenType type) {
+	if (is_token(type)) {
+		return true;
+	}
+	fatal("Expected %s, got %s", token_type_str(type), token_type_str(token.type));
+	return false;
+}
+
+static void init_stream(const char *str) {
+	stream = str;
 	next_token();
+}	
+
+void lex_test() {
+	init_stream("10+20+foo+bizz+bizzbuzz");
 	while (token.type) {
 		print_token();
 		next_token();
