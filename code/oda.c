@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <assert.h>
 #include <stdbool.h>
 #include <ctype.h>
@@ -14,10 +15,20 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
+void *xrealloc(void *ptr, size_t size) {
+	void *result = realloc(ptr, size);
+	if (result == NULL) {
+		perror("xrealloc failed");
+		exit(1);
+	}
+
+	return result;
+}
+
 void *xmalloc(size_t size) {
 	void *result = malloc(size);
 	if (result == NULL) {
-		fprintf(stderr, "fatal: malloc failed to allocate %zu bytes.\n", size);
+		perror("xmalloc failed");
 		exit(1);
 	}
 	return result;
@@ -32,6 +43,15 @@ void fatal(const char *fmt, ...) {
 	printf("\n");
 	va_end(args);
 	exit(1);
+}
+
+void syntax_error(const char *fmt, ...) {
+	va_list(args);
+	va_start(args, fmt);
+	printf("Syntax Error: ");
+	vprintf(fmt, args);
+	printf("\n");
+	va_end(args);
 }
 
 // Stretchy Buffer
@@ -104,7 +124,7 @@ const char *intern_str_range(const char *start, const char *end) {
 	char *new_str = malloc(len + 1);
 	memcpy(new_str, start, len);
 	new_str[len] = '\0';
-	buf_push(interns, (InternStr) { len, new_str });
+	buf_push(interns, (InternStr){len, new_str});
 	return new_str;
 }
 
@@ -134,8 +154,8 @@ typedef struct {
 	const char *start;
 	const char *end;
 
-	typedef union {
-		int val;
+	union {
+		int64_t int_val;
 		const char *identifier;
 	};
 } Token;
@@ -145,32 +165,32 @@ Token token;
 
 void print_token() {
 	switch (token.type) {
-		case TOKEN_INT:
-			printf("TOKEN_INT: %d\n", token.val);
-			break;
-		case TOKEN_IDENT:
-			printf("TOKEN_IDENT: %s\n", token.identifier);
-			break;
-		default:
-			if (token.type < 128) {
-				printf("%c\n", token.type);
-			}	else {
-				printf("<ASCII>%c\n", token.type);
-			}
+	case TOKEN_INT:
+		printf("TOKEN_INT: %lld\n", token.int_val);
+	break;
+	case TOKEN_IDENT:
+		printf("TOKEN_IDENT: %s\n", token.identifier);
+		break;
+	default:
+		if (token.type < 128) {
+			printf("%c\n", token.type);
+		}	else {
+			printf("<ASCII>%c\n", token.type);
+		}
 	}
 }
 
 size_t copy_token_type_str(char *dest, size_t dest_size, TokenType type) {
 	size_t n = 0;
 	switch (type) {
-		case TOKEN_INT:
-			n = snprintf(dest, dest_size, "integer");
-			break;
-		case TOKEN_IDENT:
-			n = snprintf(dest, dest_size, "identifer");
-			break;
-		default:
-			n = snprintf(dest, dest_size, "%c", type);
+	case TOKEN_INT:
+		n = snprintf(dest, dest_size, "integer");
+		break;
+	case TOKEN_IDENT:
+		n = snprintf(dest, dest_size, "identifer");
+		break;
+	default:
+		n = snprintf(dest, dest_size, "%c", type);
 	}
 
 	return n;
@@ -184,38 +204,74 @@ const char *token_type_str(TokenType type) {
 	return buf;
 }
 
+const int char_to_digit[128] = {
+	['0'] = 0, ['5'] = 5, ['a'] = 10, ['f'] = 15, ['E'] = 14,
+	['1'] = 1, ['6'] = 6, ['b'] = 11, ['A'] = 10, ['F'] = 15,
+	['2'] = 2, ['7'] = 7, ['c'] = 12, ['B'] = 11,
+	['3'] = 3, ['8'] = 8, ['d'] = 13, ['C'] = 12,
+	['4'] = 4, ['9'] = 9, ['e'] = 14, ['D'] = 13,
+};
+
 void next_token() {
 	token.start = stream;
 	switch (*stream) {
-		case '0': case '1': case '2': case '3': case '4': case '5': case '6':
-		case '7': case '8': case '9':
-			token.type = TOKEN_INT;
-			token.val = 0;
-			while (isdigit(*stream)) {
-				token.val *= 10;
-				token.val += *stream - '0';
+	//case ' ': case '\n': case '\r': case '\t': case '\v': case '\f':
+		//while (isspace(*stream)) {
+		//	*stream++;
+		//}
+		//break;
+	case '0': case '1': case '2': case '3': case '4': case '5': case '6':
+	case '7': case '8': case '9':
+		token.type = TOKEN_INT;
+		int64_t val = 0;
+		int64_t base = 10;
+		if (*stream == '0') {
+			stream++;
+			if (tolower(*stream) == 'x') {
 				stream++;
+				while (isdigit(*stream)) {
+					int64_t digit = char_to_digit[*stream];
+					val = val * 16 + digit;
+				}	
+			} else if (tolower(*stream) == 'b') {
+				
+			} else {
+
 			}
-			token.end = stream;
-			break;
-		case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
-		case 'H': case 'I': case 'J': case 'K': case 'L': case 'M': case 'N':
-		case 'O': case 'P': case 'Q': case 'R': case 'S': case 'T': case 'U':
-		case 'V': case 'W': case 'X': case 'Y': case 'Z':
-		case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
-		case 'h': case 'i': case 'j': case 'k': case 'l': case 'm': case 'n':
-		case 'o': case 'p': case 'q': case 'r': case 's': case 't': case 'u':
-		case 'v': case 'w': case 'x': case 'y': case 'z':
-			token.type = TOKEN_IDENT;
-			while (isalnum(*stream) || *stream == '_') {
-				stream++;
+		}
+		while (isdigit(*stream)) {
+			int64_t digit = *stream - '0';
+			if (val > (INT_MAX - digit) / 10) {
+				syntax_error("integer literal overflow");
+				while (isdigit(*stream)) {
+					stream++;
+				}
+				val = 0;
 			}
-			token.end = stream;
-			token.identifier = intern_str_range(token.start, token.end);
-			break;
-		default:
-			token.type = *stream++;
-			token.end = stream;
+			val = val * 10 + digit;
+			stream++;
+		}
+		token.int_val = val;
+		token.end = stream;
+		break;
+	case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
+	case 'H': case 'I': case 'J': case 'K': case 'L': case 'M': case 'N':
+	case 'O': case 'P': case 'Q': case 'R': case 'S': case 'T': case 'U':
+	case 'V': case 'W': case 'X': case 'Y': case 'Z':
+	case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
+	case 'h': case 'i': case 'j': case 'k': case 'l': case 'm': case 'n':
+	case 'o': case 'p': case 'q': case 'r': case 's': case 't': case 'u':
+	case 'v': case 'w': case 'x': case 'y': case 'z':
+		token.type = TOKEN_IDENT;
+		while (isalnum(*stream) || *stream == '_') {
+			stream++;
+		}
+		token.end = stream;
+		token.identifier = intern_str_range(token.start, token.end);
+		break;
+	default:
+		token.type = *stream++;
+		token.end = stream;
 	}
 }
 
@@ -245,7 +301,7 @@ static void init_stream(const char *str) {
 }	
 
 void lex_test() {
-	init_stream("10+20+foo+bizz+bizzbuzz");
+	init_stream("10+20+foo+bizz+bizzbuzz+2147483648");
 	while (token.type) {
 		print_token();
 		next_token();
