@@ -212,6 +212,26 @@ const int char_to_digit[128] = {
 	['4'] = 4, ['9'] = 9, ['e'] = 14, ['D'] = 13,
 };
 
+int64_t scan_int(int64_t base) {
+	int64_t val = 0;
+	int64_t digit = 
+	while (isalnum(*stream)) {
+		digit = char_to_digit[*stream];
+		if (val > (INT_MAX - digit) / 10) {
+			syntax_error("integer literal overflow");
+			val = 0;
+		}
+		if (digit >= base) {
+			syntax_error("invalid character in decimal literal %c", *stream);
+			digit = 0;
+		}
+		val = val * base + digit;
+		stream++;
+	}
+
+	return digit;
+}
+
 void next_token() {
 	token.start = stream;
 	switch (*stream) {
@@ -229,28 +249,46 @@ void next_token() {
 			stream++;
 			if (tolower(*stream) == 'x') {
 				stream++;
-				while (isdigit(*stream)) {
+				base = 16;
+				while (isalnum(*stream)) {
 					int64_t digit = char_to_digit[*stream];
-					val = val * 16 + digit;
-				}	
-			} else if (tolower(*stream) == 'b') {
-				
-			} else {
-
-			}
-		}
-		while (isdigit(*stream)) {
-			int64_t digit = *stream - '0';
-			if (val > (INT_MAX - digit) / 10) {
-				syntax_error("integer literal overflow");
-				while (isdigit(*stream)) {
-					stream++;
+					if (val > (INT_MAX - digit) / 10) {
+						syntax_error("integer literal overflow");
+						val = 0;
+					}
+					if (digit >= base) {
+						syntax_error("invalid character in hexadecimal literal %c", *stream); 
+						digit = 0;
+					}
+					val = val * base + digit;
 				}
-				val = 0;
+			} else if (tolower(*stream) == 'b') {
+				stream++;
+				base = 2;
+			} else if (isdigit(*stream)) {
+				stream++;
+				base = 8;
+			} else {
+				syntax_error("invalid integer literal prefix, %c", *stream);
+				base = 1;
 			}
-			val = val * 10 + digit;
-			stream++;
+		} else {
+			while (isdigit(*stream)) {
+				int64_t digit = char_to_digit[*stream];
+				if (val > (INT_MAX - digit) / 10) {
+					syntax_error("integer literal overflow");
+					val = 0;
+				}
+				if (digit >= base) {
+					syntax_error("invalid character in decimal literal %c", *stream);
+					val = 0;
+				}
+				val = val * base + digit;
+
+				stream++;
+			}
 		}
+
 		token.int_val = val;
 		token.end = stream;
 		break;
@@ -301,7 +339,7 @@ static void init_stream(const char *str) {
 }	
 
 void lex_test() {
-	init_stream("10+20+foo+bizz+bizzbuzz+2147483648");
+	init_stream("10+20+foo+bizz+bizzbuzz");
 	while (token.type) {
 		print_token();
 		next_token();
