@@ -35,6 +35,7 @@ void *xmalloc(size_t size) {
 }
 #define malloc(x) xmalloc(x)
 
+
 void fatal(const char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
@@ -212,11 +213,10 @@ const int char_to_digit[128] = {
 	['4'] = 4, ['9'] = 9, ['e'] = 14, ['D'] = 13,
 };
 
-int64_t scan_int(int64_t base) {
+static int64_t scan_int(int64_t base) {
 	int64_t val = 0;
-	int64_t digit = 
 	while (isalnum(*stream)) {
-		digit = char_to_digit[*stream];
+		int64_t digit = char_to_digit[*stream];
 		if (val > (INT_MAX - digit) / 10) {
 			syntax_error("integer literal overflow");
 			val = 0;
@@ -229,67 +229,39 @@ int64_t scan_int(int64_t base) {
 		stream++;
 	}
 
-	return digit;
+	return val;
 }
 
 void next_token() {
 	token.start = stream;
 	switch (*stream) {
-	//case ' ': case '\n': case '\r': case '\t': case '\v': case '\f':
-		//while (isspace(*stream)) {
-		//	*stream++;
-		//}
-		//break;
+	case ' ': case '\n': case '\r': case '\t': case '\v': case '\f':
+		while (isspace(*stream)) {
+			*stream++;
+		}
+		break;
 	case '0': case '1': case '2': case '3': case '4': case '5': case '6':
 	case '7': case '8': case '9':
 		token.type = TOKEN_INT;
-		int64_t val = 0;
 		int64_t base = 10;
 		if (*stream == '0') {
 			stream++;
 			if (tolower(*stream) == 'x') {
-				stream++;
 				base = 16;
-				while (isalnum(*stream)) {
-					int64_t digit = char_to_digit[*stream];
-					if (val > (INT_MAX - digit) / 10) {
-						syntax_error("integer literal overflow");
-						val = 0;
-					}
-					if (digit >= base) {
-						syntax_error("invalid character in hexadecimal literal %c", *stream); 
-						digit = 0;
-					}
-					val = val * base + digit;
-				}
+				stream++;
 			} else if (tolower(*stream) == 'b') {
-				stream++;
 				base = 2;
-			} else if (isdigit(*stream)) {
 				stream++;
+			} else if (isdigit(*stream)) {
 				base = 8;
 			} else {
 				syntax_error("invalid integer literal prefix, %c", *stream);
 				base = 1;
-			}
-		} else {
-			while (isdigit(*stream)) {
-				int64_t digit = char_to_digit[*stream];
-				if (val > (INT_MAX - digit) / 10) {
-					syntax_error("integer literal overflow");
-					val = 0;
-				}
-				if (digit >= base) {
-					syntax_error("invalid character in decimal literal %c", *stream);
-					val = 0;
-				}
-				val = val * base + digit;
-
 				stream++;
 			}
 		}
 
-		token.int_val = val;
+		token.int_val = scan_int(base);
 		token.end = stream;
 		break;
 	case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
@@ -338,12 +310,35 @@ static void init_stream(const char *str) {
 	next_token();
 }	
 
+#define assert_token_int(val) (assert(is_token(TOKEN_INT) && token.int_val == val), next_token())
+#define assert_token_type(type) (assert(is_token(type)), next_token())
+#define assert_token_ident(ident) (assert(is_token(TOKEN_IDENT) && strcmp(token.identifier, ident) == 0), next_token())
+#define assert_token_eof() (assert(token.type == '\0'))
+
 void lex_test() {
-	init_stream("10+20+foo+bizz+bizzbuzz");
-	while (token.type) {
-		print_token();
-		next_token();
-	}
+	init_stream("0X32+0b1010+036");
+	assert_token_int(0x32);
+	assert_token_type('+');
+	assert_token_int(10);
+	assert_token_type('+');
+	assert_token_int(036);
+	assert_token_eof();
+
+	init_stream("bizzbuzz*(0x84+29)");
+	assert_token_ident("bizzbuzz");
+	assert_token_type('*');
+	assert_token_type('(');
+	assert_token_int(0x84);
+	assert_token_type('+');
+	assert_token_int(29);
+	assert_token_type(')');
+	assert_token_eof();
+
+	init_stream("foo+bizz");
+	assert_token_ident("foo");
+	assert_token_type('+');
+	assert_token_ident("bizz");
+	assert_token_eof();
 }
 
 int main(int argc, char **argv) {
