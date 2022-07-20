@@ -12,6 +12,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdarg.h>
+#include <math.h>
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -34,7 +35,6 @@ void *xmalloc(size_t size) {
 	return result;
 }
 #define malloc(x) xmalloc(x)
-
 
 void fatal(const char *fmt, ...) {
 	va_list args;
@@ -148,15 +148,25 @@ void intern_str_test() {
 typedef enum {
 	TOKEN_IDENT = 128,
 	TOKEN_INT,
+	TOKEN_FLOAT,
+	TOKEN_STR,
 } TokenType;
 
+typedef enum {
+	TOKEN_NONE,
+	TOKEN_CHAR,
+} TokenMod;
 typedef struct {
 	TokenType type;
+	TokenMod mod;
 	const char *start;
 	const char *end;
 
 	union {
-		int64_t int_val;
+		uint64_t int_val;
+		double float_val;
+		const char *str_val;
+		char char_val;
 		const char *identifier;
 	};
 } Token;
@@ -213,55 +223,138 @@ const int char_to_digit[128] = {
 	['4'] = 4, ['9'] = 9, ['e'] = 14, ['D'] = 13,
 };
 
-static int64_t scan_int(int64_t base) {
-	int64_t val = 0;
-	while (isalnum(*stream)) {
-		int64_t digit = char_to_digit[*stream];
-		if (val > (INT_MAX - digit) / 10) {
+double scan_float() {
+	const char *start = stream;
+	while (isdigit(*stream)) {
+		stream++;
+	}
+	if (*stream != '.') {
+		syntax_error("Expected '.' in float literal, found %c", *stream);
+	}
+	stream++;
+	while (isdigit(*stream)) {
+		stream++;
+	}
+	if (tolower(*stream) == 'e') {
+		stream++;
+		if (*stream == '+' || *stream == '-') {
+			stream++;
+		}
+		if (!isdigit(*stream)) {
+			syntax_error("expected digit after float literal exponent, found %c", *stream);
+		}
+		while (isdigit(*stream)) {
+			stream++;
+		}
+	}
+
+	double result = strtod(start, NULL);
+	if (result == HUGE_VAL || result == -HUGE_VAL) {
+		syntax_error("float literal overflow");
+	}
+	return result;
+}
+
+static uint64_t scan_int() {
+	uint64_t result = 0;
+	uint64_t base = 10;
+	if (*stream == '0') {
+		stream++;
+		if (tolower(*stream) == 'x') {
+			base = 16;
+			stream++;
+		} else if (tolower(*stream) == 'b') {
+			base = 2;
+			stream++;
+		} else if (isdigit(*stream)) {
+			base = 8;
+		} else {
+			syntax_error("invalid integer literal prefix, %c", *stream);
+			base = 1;
+			stream++;
+		}
+	}
+
+	for (;;) {
+		uint64_t digit = char_to_digit[*stream];
+		if (digit == 0 && *stream != '0') {
+			break;
+		}
+		if (result > (INT_MAX - digit) / 10) {
 			syntax_error("integer literal overflow");
-			val = 0;
+			result = 0;
 		}
 		if (digit >= base) {
-			syntax_error("invalid character in decimal literal %c", *stream);
+			syntax_error("digit %c, out of range for base %lld", *stream, base);
 			digit = 0;
 		}
-		val = val * base + digit;
+		result = result * base + digit;
 		stream++;
 	}
 
-	return val;
+	return result;
 }
 
+static char char_to_literal[256] = {
+	[1] = 0,
+};
+
 void next_token() {
+top:
+	token.mod = TOKEN_NONE;
 	token.start = stream;
 	switch (*stream) {
 	case ' ': case '\n': case '\r': case '\t': case '\v': case '\f':
 		while (isspace(*stream)) {
 			*stream++;
 		}
+		goto top;
+		break;
+	case '"':
+		token.type = TOKEN_INT;
+		stream++;
+		char *str = NULL;
+		while (*stream != '"' && *stream != 0) {
+			char ch = *stream;
+			buf_push(str, ch);
+			stream++;
+		}
+		if (*stream != '"') {
+			syntax_error("unexpected end of file in string literal");
+		}
+		token.type = TOKEN_STR;
+		token.end = stream;
+		break;
+	case '\'':
+		stream++;
+		if (*stream == '\\') {
+			stream++;
+			// escape ...
+			// token.char_val = ;
+		} else {
+			token.char_val = *stream;
+		}
+		token.mod = TOKEN_CHAR;
+		break;
+	case '.':
+		token.type = TOKEN_FLOAT;
+		token.float_val = scan_float();
+		token.end = stream;
 		break;
 	case '0': case '1': case '2': case '3': case '4': case '5': case '6':
 	case '7': case '8': case '9':
-		token.type = TOKEN_INT;
-		int64_t base = 10;
-		if (*stream == '0') {
+		while (isdigit(*stream)) {
 			stream++;
-			if (tolower(*stream) == 'x') {
-				base = 16;
-				stream++;
-			} else if (tolower(*stream) == 'b') {
-				base = 2;
-				stream++;
-			} else if (isdigit(*stream)) {
-				base = 8;
-			} else {
-				syntax_error("invalid integer literal prefix, %c", *stream);
-				base = 1;
-				stream++;
-			}
 		}
-
-		token.int_val = scan_int(base);
+		if (*stream == '.') {
+			token.type = TOKEN_FLOAT;
+			stream = token.start;
+			token.float_val = scan_float();
+		} else {
+			token.type = TOKEN_INT;
+			stream = token.start;
+			token.int_val = scan_int();
+		}
 		token.end = stream;
 		break;
 	case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
@@ -310,33 +403,43 @@ static void init_stream(const char *str) {
 	next_token();
 }	
 
-#define assert_token_int(val) (assert(is_token(TOKEN_INT) && token.int_val == val), next_token())
-#define assert_token_type(type) (assert(is_token(type)), next_token())
-#define assert_token_ident(ident) (assert(is_token(TOKEN_IDENT) && strcmp(token.identifier, ident) == 0), next_token())
-#define assert_token_eof() (assert(token.type == '\0'))
+#define assert_token(token) (assert(match_token(token)))
+#define assert_token_int(x) (assert(token.int_val == x && match_token(TOKEN_INT)))
+#define assert_token_float(f) (assert(token.float_val == f && match_token(TOKEN_FLOAT)))
+#define assert_token_ident(str) (assert(token.identifier == intern_str(str) && match_token(TOKEN_IDENT)))
+#define assert_token_eof() (assert(is_token(0)))
 
 void lex_test() {
-	init_stream("0X32+0b1010+036");
+	init_stream("10.0 0.034 .190 0.2E2 9.0E-2 .9e+10");
+	assert_token_float(10.0);
+	assert_token_float(0.034);
+	assert_token_float(.190);
+	assert_token_float(0.2E2);
+	assert_token_float(9.0E-2);
+	assert_token_float(.9e+10);
+
+	init_stream("0 0x32 + 0b1010 + 036");
+	assert_token_int(0);
 	assert_token_int(0x32);
-	assert_token_type('+');
+	assert_token('+');
 	assert_token_int(10);
-	assert_token_type('+');
+	assert_token('+');
 	assert_token_int(036);
 	assert_token_eof();
 
-	init_stream("bizzbuzz*(0x84+29)");
+	init_stream("bizzbuzz * (0x84 + 29)");
 	assert_token_ident("bizzbuzz");
-	assert_token_type('*');
-	assert_token_type('(');
+	assert_token('*');
+	assert_token('(');
 	assert_token_int(0x84);
-	assert_token_type('+');
+	assert_token('+');
 	assert_token_int(29);
-	assert_token_type(')');
+	assert_token(')');
 	assert_token_eof();
 
-	init_stream("foo+bizz");
+	init_stream("foo + bizz");
 	assert_token_ident("foo");
-	assert_token_type('+');
+	assert_token('+');
 	assert_token_ident("bizz");
 	assert_token_eof();
 }
