@@ -142,23 +142,18 @@ void intern_str_test() {
 	const char *dy = intern_str("bizzbuzz");
 	assert(dx != dy);
 }
-
 // Lexing
 
 typedef enum {
 	TOKEN_IDENT = 128,
 	TOKEN_INT,
 	TOKEN_FLOAT,
+	TOKEN_CHAR,
 	TOKEN_STR,
 } TokenType;
 
-typedef enum {
-	TOKEN_NONE,
-	TOKEN_CHAR,
-} TokenMod;
 typedef struct {
 	TokenType type;
-	TokenMod mod;
 	const char *start;
 	const char *end;
 
@@ -295,13 +290,12 @@ static uint64_t scan_int() {
 	return result;
 }
 
-static char char_to_literal[256] = {
-	[1] = 0,
+static char escape_to_char[256] = {
+	['n'] = '\n', ['r'] = '\r', ['t'] = '\t', ['v'] = '\v', ['f'] = '\f',
 };
 
 void next_token() {
 top:
-	token.mod = TOKEN_NONE;
 	token.start = stream;
 	switch (*stream) {
 	case ' ': case '\n': case '\r': case '\t': case '\v': case '\f':
@@ -315,26 +309,54 @@ top:
 		stream++;
 		char *str = NULL;
 		while (*stream != '"' && *stream != 0) {
-			char ch = *stream;
+			char ch;
+			if (*stream == '\\') {
+				stream++;
+				ch = escape_to_char[*stream];
+				if (ch == 0) {
+					syntax_error("unexpected character in char literal, %c", *stream);
+				}
+			} else {
+				ch = *stream;
+			}
+
 			buf_push(str, ch);
 			stream++;
 		}
-		if (*stream != '"') {
+		if (*stream == '"') {
+			stream++;
+		} else {
 			syntax_error("unexpected end of file in string literal");
 		}
+
 		token.type = TOKEN_STR;
+		token.str_val = str;
 		token.end = stream;
 		break;
 	case '\'':
+		char val;
 		stream++;
 		if (*stream == '\\') {
 			stream++;
-			// escape ...
-			// token.char_val = ;
+			val = escape_to_char[*stream];
 		} else {
-			token.char_val = *stream;
+			val = *stream;
+			if (isspace(val)) {
+				val = 0;
+			}
 		}
-		token.mod = TOKEN_CHAR;
+		if (val == 0) {
+			syntax_error("unexpected character in char literal, %c", *stream);
+		}
+		stream++;
+		if (*stream != '\'') {
+			syntax_error("expected single quote, got %c", *stream);
+		}
+		stream++;
+
+		token.type = TOKEN_CHAR;
+		token.char_val = val;
+		token.end = stream;
 		break;
 	case '.':
 		token.type = TOKEN_FLOAT;
@@ -407,6 +429,8 @@ static void init_stream(const char *str) {
 #define assert_token_int(x) (assert(token.int_val == x && match_token(TOKEN_INT)))
 #define assert_token_float(f) (assert(token.float_val == f && match_token(TOKEN_FLOAT)))
 #define assert_token_ident(str) (assert(token.identifier == intern_str(str) && match_token(TOKEN_IDENT)))
+#define assert_token_char(ch) (assert(token.char_val == ch && match_token(TOKEN_CHAR)))
+#define assert_token_str(str) (assert(strcmp(str, token.str_val) && match_token(TOKEN_STR)))
 #define assert_token_eof() (assert(is_token(0)))
 
 void lex_test() {
@@ -418,8 +442,12 @@ void lex_test() {
 	assert_token_float(9.0E-2);
 	assert_token_float(.9e+10);
 
-	init_stream("0 0x32 + 0b1010 + 036");
-	assert_token_int(0);
+	init_stream("\'\\n\' \"foo \\n\"");
+	assert_token_char('\n');
+	assert_token_str("foo \n");
+	assert_token_eof();
+
+	init_stream("0x32 + 0b1010 + 036");
 	assert_token_int(0x32);
 	assert_token('+');
 	assert_token_int(10);
@@ -435,12 +463,6 @@ void lex_test() {
 	assert_token('+');
 	assert_token_int(29);
 	assert_token(')');
-	assert_token_eof();
-
-	init_stream("foo + bizz");
-	assert_token_ident("foo");
-	assert_token('+');
-	assert_token_ident("bizz");
 	assert_token_eof();
 }
 
