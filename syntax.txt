@@ -76,21 +76,25 @@ main(argc :int, argv :char**) :int {
 }
 
 EBNF grammar:
-
+Declarations:
 var_decl = IDENT '=' expr
          | IDENT ':' type ('=' expr)?
 
-type = IDENT
-     | 
-
+basic_type = '[' ']'
+           | '*'
+type = IDENT basic_type*
 type_list = type (',' type)*
 
-func_arg = IDENT ':' type ('=' expr)? 
-arg_list = func_arg (',' func_arg)* 
-func_decl = IDENT '(' arg_list ')' ':' type_list '{' stmt_block '}'
+enum_entry = IDENT 
+enum_list = enum_entry (',' enum_entry)*
+enum_decl = IDENT '{' enum_list? '}'
 
-aggregate_entry = IDENT ':' type ';'
-aggregate_list = '{' aggregate_entry+ '}'
+func_param = IDENT ':' type ('=' expr)? 
+param_list = func_param (',' func_param)* 
+func_decl = IDENT '(' param_list ')' ':' type_list stmt_block
+
+aggregate_entry = IDENT ':' type ('=' expr)? ';'
+aggregate_list = '{' aggregate_entry? '}'
 
 decl = var_decl
 	 | 'enum' enum_decl
@@ -98,5 +102,16 @@ decl = var_decl
 	 | 'union' aggregate_list
 	 | func_decl
 
+Statements:
 
+for_op = IDENT '=' expr
+       | IDENT '++'
+	   | IDENT '--'
+	   | '++' IDENT
+	   | '--' IDENT
 
+stmt_block = '{' stmt* '}'
+stmt = 'return' expr ';'
+     | 'if' expr stmt_block ('else' 'if' expr stmt_block)* ('else expr stmt_blocK)?
+	 | 'while' expr stmt_block
+	 | 'for' var_decl? (',' var_decl)* ';' expr ';' for_op stmt_block
