@@ -1,4 +1,3 @@
-
 tokens:
 
 grouping:
@@ -24,3 +23,80 @@ FLOAT  = [0-9]*[.][0-9]+([eE][+-]?[0-9]+)?
 INT    = [1-9][0-9]* | 0[xX][0-9a-fA-f]+ | 0[b][0-1]+ | 0[0-7]+
 CHAR   = '\'' . '\''
 STRING = '"' [^"]* '"'
+
+
+example code:
+
+struct Vector2 {
+	int x;
+	int y;
+};
+
+enum Flags {
+	FLAG_NONE,
+	FLAG_CONTINUE,
+	FLAG_STALLED,
+	FLAG_END
+};
+
+foo(a :int, b :bool = false) :int, Vector2 {
+	n := a;
+
+	if b {
+		n += 10;
+	}
+
+	for x := 0; x < a; x++ {
+		n++;
+	}
+
+	vec := Vector2{
+		x = 10,
+		y = 12
+	};
+	return n, vec;
+}
+
+factorial(x :int) :int {
+	if x == 0 {
+		return 1;
+	}
+	return x * fact(x - 1);
+}
+
+main(argc :int, argv :char**) :int {
+	n := factorial(12); // comment fact
+	x := 0.0;
+
+	while n > 0 {
+		++x;
+	}
+
+	return 0;
+}
+
+EBNF grammar:
+
+var_decl = IDENT '=' expr
+         | IDENT ':' type ('=' expr)?
+
+type = IDENT
+     | 
+
+type_list = type (',' type)*
+
+func_arg = IDENT ':' type ('=' expr)? 
+arg_list = func_arg (',' func_arg)* 
+func_decl = IDENT '(' arg_list ')' ':' type_list '{' stmt_block '}'
+
+aggregate_entry = IDENT ':' type ';'
+aggregate_list = '{' aggregate_entry+ '}'
+
+decl = var_decl
+	 | 'enum' enum_decl
+	 | 'struct' aggregate_list
+	 | 'union' aggregate_list
+	 | func_decl
+
+
+
