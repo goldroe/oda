@@ -1,0 +1,19 @@
+
+struct Vector {
+    x :int;
+    y :int;
+}
+
+struct Vectorf {
+    x :float = 0.0;
+    y :float = 0.0;
+}
+
+fun(a :int, b :float) : float {
+    return a / b;
+}
+
+main(argc :int, argv :char) : int {
+    var x :int;
+    return 0;
+}
